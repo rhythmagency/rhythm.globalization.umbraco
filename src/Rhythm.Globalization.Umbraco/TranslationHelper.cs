@@ -37,6 +37,11 @@
         /// </summary>
         private static InvalidatorByParentPage<int?> TranslateFolderInvalidator { get; set; }
 
+        /// <summary>
+        /// The translations stored by term.
+        /// </summary>
+        private static InstanceByKeyCache<string, string> Translations { get; set; }
+
         #endregion
 
         #region Constructors
@@ -50,6 +55,7 @@
             TranslationFolderNodeIds = new InstanceByKeyCache<int?, int>();
             TranslateFolderInvalidator = new InvalidatorByParentPage<int?>(
                 TranslationFolderNodeIds);
+            Translations = new InstanceByKeyCache<string, string>();
         }
 
         #endregion
@@ -126,26 +132,26 @@
         }
 
         /// <summary>
-        /// Returns a dictionary translation for the specified dictionary key.
+        /// Returns a dictionary translation for the specified dictionary term.
         /// </summary>
-        /// <param name="key">
-        /// The Umbraco dictionary key.
+        /// <param name="term">
+        /// The Umbraco dictionary term.
         /// </param>
         /// <returns>
         /// The translation.
         /// </returns>
-        public static string GetDictionaryTranslation(string key)
+        public static string GetDictionaryTranslation(string term)
         {
             var requestUrl = HttpContext.Current.Request.Url.ToString();
             var culture = GlobalizationHelper.GetCulture(requestUrl);
-            return GetDictionaryTranslation(key, culture);
+            return GetDictionaryTranslation(term, culture);
         }
 
         /// <summary>
-        /// Returns a dictionary translation for the specified dictionary key in the specified culture.
+        /// Returns a dictionary translation for the specified dictionary term in the specified culture.
         /// </summary>
-        /// <param name="key">
-        /// The Umbraco dictionary key.
+        /// <param name="term">
+        /// The Umbraco dictionary term.
         /// </param>
         /// <param name="culture">
         /// The culture.
@@ -153,12 +159,37 @@
         /// <returns>
         /// The translation.
         /// </returns>
-        public static string GetDictionaryTranslation(string key, string culture)
+        /// <remarks>
+        /// Note that translations are cached for a short amount of time for performance reasons.
+        /// </remarks>
+        public static string GetDictionaryTranslation(string term, string culture)
         {
-            var service = ApplicationContext.Current.Services.LocalizationService;
-            var item = service.GetDictionaryItemByKey(key);
-            return item?.Translations?.FirstOrDefault(x =>
-                culture.InvariantEquals(x.Language.IsoCode))?.Value;
+
+            // Validate input.
+            if (string.IsNullOrWhiteSpace(term) || string.IsNullOrWhiteSpace(culture))
+            {
+                return null;
+            }
+
+            // Variables.
+            var keys = RhythmCacheHelper.PreviewCacheKeys.Concat(new[] { culture }).ToArray();
+            var duration = TimeSpan.FromHours(1);
+
+            // Get the translation from the cache.
+            var translation = Translations.Get(term, localTerm =>
+            {
+
+                // Get tranlsation from the Umbraco dictionary.
+                var service = ApplicationContext.Current.Services.LocalizationService;
+                var item = service.GetDictionaryItemByKey(localTerm);
+                return item?.Translations?.FirstOrDefault(x =>
+                    culture.InvariantEquals(x.Language.IsoCode))?.Value;
+
+            }, duration, keys: keys);
+
+            // Return the translation.
+            return translation;
+
         }
 
         #endregion
