@@ -212,7 +212,7 @@
         /// Does not include the default culture. Only includes the cultures specified on
         /// the translation nodes.
         /// </remarks>
-        public IEnumerable<string> GetTranslatedCultures(IPublishedContent page)
+        public static IEnumerable<string> GetTranslatedCultures(IPublishedContent page)
         {
 
             // Variables.
