@@ -9,6 +9,7 @@
     using global::Umbraco.Core.Models;
     using global::Umbraco.Web;
     using System;
+    using System.Collections.Generic;
     using System.Linq;
     using System.Web;
     using Types;
@@ -26,6 +27,11 @@
         /// The ID's of the translations nodes by the parent node and culture.
         /// </summary>
         private static InstanceByKeyCache<int, NodeAndCulture> TranslationNodeIds { get; set; }
+
+        /// <summary>
+        /// The cultures that have been translated for the node indicated by the node ID of the key.
+        /// </summary>
+        private static InstanceByKeyCache<IEnumerable<string>, int> TranslationCulturesByNodeIds { get; set; }
 
         /// <summary>
         /// The ID's of the translation folders by the parent node.
@@ -52,6 +58,7 @@
         static TranslationHelper()
         {
             TranslationNodeIds = new InstanceByKeyCache<int, NodeAndCulture>();
+            TranslationCulturesByNodeIds = new InstanceByKeyCache<IEnumerable<string>, int>();
             TranslationFolderNodeIds = new InstanceByKeyCache<int?, int>();
             TranslateFolderInvalidator = new InvalidatorByParentPage<int?>(
                 TranslationFolderNodeIds);
@@ -192,6 +199,51 @@
 
         }
 
+        /// <summary>
+        /// Returns the cultures that have a translation for the specified page.
+        /// </summary>
+        /// <param name="page">
+        /// The page.
+        /// </param>
+        /// <returns>
+        /// The cultures.
+        /// </returns>
+        /// <remarks>
+        /// Does not include the default culture. Only includes the cultures specified on
+        /// the translation nodes.
+        /// </remarks>
+        public IEnumerable<string> GetTranslatedCultures(IPublishedContent page)
+        {
+
+            // Variables.
+            var duration = TimeSpan.FromHours(1);
+            var key = page.Id;
+            var keys = RhythmCacheHelper.PreviewCacheKeys;
+
+            // Get the cultures from the cache.
+            var cultures = TranslationCulturesByNodeIds.Get(key, pageId =>
+            {
+
+                // Look for a translation folder.
+                var folderNode = GetTranslationFolderForNode(page);
+
+                // Look for the translation nodes under the folder.
+                var translationNodes = folderNode == null
+                    ? Enumerable.Empty<IPublishedContent>()
+                    : GetAllTranslationNodesFromFolder(folderNode);
+
+                // Return the cultures.
+                return translationNodes
+                    .Select(x => x.GetPropertyValue<string>("language"))
+                    .ToArray();
+
+            }, duration, keys: keys);
+
+            // Return the cultures.
+            return cultures;
+
+        }
+
         #endregion
 
         #region Private Methods
@@ -219,7 +271,7 @@
                     Node = x,
                     Language = x.GetPropertyValue<string>("language")
                 })
-                .Where(x => x.Language != null)
+                .Where(x => !string.IsNullOrWhiteSpace(x.Language))
                 .Where(x => culture.InvariantEquals(x.Language))
                 .Select(x => x.Node)
                 .FirstOrDefault();
@@ -227,6 +279,30 @@
             // Return the translation node.
             return translationNode;
 
+        }
+
+        /// <summary>
+        /// Returns all translation nodes under the specified translation folder.
+        /// </summary>
+        /// <param name="translationFolder">
+        /// The translation folder.
+        /// </param>
+        /// <returns>
+        /// The translation nodes.
+        /// </returns>
+        private static IEnumerable<IPublishedContent> GetAllTranslationNodesFromFolder(
+            IPublishedContent translationFolder)
+        {
+            return translationFolder.Children
+                .Select(x => new
+                {
+                    Node = x,
+                    Language = x.GetPropertyValue<string>("language")
+                })
+                // Only include nodes that have a language.
+                .Where(x => !string.IsNullOrWhiteSpace(x.Language))
+                .Select(x => x.Node)
+                .ToArray();
         }
 
         /// <summary>
