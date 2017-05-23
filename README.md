@@ -10,7 +10,7 @@ Install with NuGet. Search for "Rhythm.Globalization.Umbraco".
 
 # Overview
 
-The `TranslationHelper` class has the following methods:
+## TranslationHelper
 
 * **GetTranslationNode** Gets the Umbraco content node containing the translations.
 * **GetDictionaryTranslation** Returns an Umbraco dictionary translation for the specified dictionary term.
