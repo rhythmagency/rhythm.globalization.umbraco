@@ -1,5 +1,7 @@
 # Visual Studio
 ###############
+**/obj/
+**/bin/
 **/obj/Debug/
 **/bin/Debug/
 **/obj/Release/

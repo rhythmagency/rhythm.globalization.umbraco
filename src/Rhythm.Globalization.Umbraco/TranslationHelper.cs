@@ -1,17 +1,14 @@
 ﻿namespace Rhythm.Globalization.Umbraco
 {
-
     // Namespaces.
     using Caching.Core.Caches;
     using Caching.Umbraco.Invalidators;
-    using Core;
-    using global::Umbraco.Core;
-    using global::Umbraco.Core.Models;
-    using global::Umbraco.Web;
+    using global::Umbraco.Cms.Core.Models.PublishedContent;
+    using global::Umbraco.Cms.Core.Web;
+    using global::Umbraco.Extensions;
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using System.Web;
     using Types;
     using RhythmCacheHelper = Caching.Umbraco.CacheHelper;
 
@@ -78,11 +75,14 @@
         /// <param name="culture">
         /// The culture (e.g., "es-mx") to get the translation node for.
         /// </param>
+        /// <param name="umbracoContext"></param>
         /// <returns>
         /// The node containing the translations.
         /// </returns>
-        public static IPublishedContent GetTranslationNode(IPublishedContent page,
-            string culture)
+        public static IPublishedContent GetTranslationNode(
+            IPublishedContent page,
+            string culture, 
+            IUmbracoContext umbracoContext)
         {
 
             // Validate input.
@@ -94,14 +94,14 @@
             // Variables.
             var duration = TimeSpan.FromHours(1);
             var key = new NodeAndCulture(page.Id, culture);
-            var keys = RhythmCacheHelper.PreviewCacheKeys;
+            var keys = RhythmCacheHelper.PreviewCacheKeys(umbracoContext);
 
             // Get the node ID from the cache.
             var translationNodeId = TranslationNodeIds.Get(key, nodeAndCulture =>
             {
 
                 // Look for a translation folder.
-                var folderNode = GetTranslationFolderForNode(page);
+                var folderNode = GetTranslationFolderForNode(page, umbracoContext);
 
                 // Look for a translation node under the folder.
                 var translationNode = folderNode == null
@@ -112,90 +112,8 @@
             }, duration, keys: keys);
 
             // Return translation node.
-            var cache = UmbracoContext.Current.ContentCache;
+            var cache = umbracoContext.Content;
             return cache.GetById(translationNodeId);
-
-        }
-
-        /// <summary>
-        /// Gets the node containing the translations.
-        /// </summary>
-        /// <param name="page">
-        /// The node to get the translation node for.
-        /// </param>
-        /// <returns>
-        /// The node containing the translations.
-        /// </returns>
-        public static IPublishedContent GetTranslationNode(IPublishedContent page)
-        {
-
-            // Variables.
-            var requestUrl = HttpContext.Current.Request.Url.ToString();
-            var culture = GlobalizationHelper.GetCulture(requestUrl);
-
-            // Return translation node.
-            return GetTranslationNode(page, culture);
-
-        }
-
-        /// <summary>
-        /// Returns a dictionary translation for the specified dictionary term.
-        /// </summary>
-        /// <param name="term">
-        /// The Umbraco dictionary term.
-        /// </param>
-        /// <returns>
-        /// The translation.
-        /// </returns>
-        public static string GetDictionaryTranslation(string term)
-        {
-            var requestUrl = HttpContext.Current.Request.Url.ToString();
-            var culture = GlobalizationHelper.GetCulture(requestUrl);
-            return GetDictionaryTranslation(term, culture);
-        }
-
-        /// <summary>
-        /// Returns a dictionary translation for the specified dictionary term in the specified culture.
-        /// </summary>
-        /// <param name="term">
-        /// The Umbraco dictionary term.
-        /// </param>
-        /// <param name="culture">
-        /// The culture.
-        /// </param>
-        /// <returns>
-        /// The translation.
-        /// </returns>
-        /// <remarks>
-        /// Note that translations are cached for a short amount of time for performance reasons.
-        /// </remarks>
-        public static string GetDictionaryTranslation(string term, string culture)
-        {
-
-            // Validate input.
-            if (string.IsNullOrWhiteSpace(term) || string.IsNullOrWhiteSpace(culture))
-            {
-                return null;
-            }
-
-            // Variables.
-            var keys = RhythmCacheHelper.PreviewCacheKeys.Concat(new[] { culture }).ToArray();
-            var duration = TimeSpan.FromHours(1);
-
-            // Get the translation from the cache.
-            var translation = Translations.Get(term, localTerm =>
-            {
-
-                // Get tranlsation from the Umbraco dictionary.
-                var service = ApplicationContext.Current.Services.LocalizationService;
-                var item = service.GetDictionaryItemByKey(localTerm);
-                return item?.Translations?.FirstOrDefault(x =>
-                    culture.InvariantEquals(x.Language.IsoCode))?.Value;
-
-            }, duration, keys: keys);
-
-            // Return the translation.
-            return translation;
 
         }
 
@@ -205,6 +123,7 @@
         /// <param name="page">
         /// The page.
         /// </param>
+        /// <param name="context"></param>
         /// <returns>
         /// The cultures.
         /// </returns>
@@ -212,20 +131,22 @@
         /// Does not include the default culture. Only includes the cultures specified on
         /// the translation nodes.
         /// </remarks>
-        public static IEnumerable<string> GetTranslatedCultures(IPublishedContent page)
+        public static IEnumerable<string> GetTranslatedCultures(
+            IPublishedContent page, 
+            IUmbracoContext context)
         {
 
             // Variables.
             var duration = TimeSpan.FromHours(1);
             var key = page.Id;
-            var keys = RhythmCacheHelper.PreviewCacheKeys;
+            var keys = RhythmCacheHelper.PreviewCacheKeys(context);
 
             // Get the cultures from the cache.
             var cultures = TranslationCulturesByNodeIds.Get(key, pageId =>
             {
 
                 // Look for a translation folder.
-                var folderNode = GetTranslationFolderForNode(page);
+                var folderNode = GetTranslationFolderForNode(page, context);
 
                 // Look for the translation nodes under the folder.
                 var translationNodes = folderNode == null
@@ -234,7 +155,7 @@
 
                 // Return the cultures.
                 return translationNodes
-                    .Select(x => x.GetPropertyValue<string>("language"))
+                    .Select(x => x.Value<string>("language"))
                     .ToArray();
 
             }, duration, keys: keys);
@@ -261,7 +182,8 @@
         /// The translation node, or null.
         /// </returns>
         private static IPublishedContent GetTranslationNodeFromFolder(
-            IPublishedContent translationFolder, string culture)
+            IPublishedContent translationFolder, 
+            string culture)
         {
 
             // Find the translation node based on the language property.
@@ -269,7 +191,7 @@
                 .Select(x => new
                 {
                     Node = x,
-                    Language = x.GetPropertyValue<string>("language")
+                    Language = x.Value<string>("language")
                 })
                 .Where(x => !string.IsNullOrWhiteSpace(x.Language))
                 .Where(x => culture.InvariantEquals(x.Language))
@@ -297,7 +219,7 @@
                 .Select(x => new
                 {
                     Node = x,
-                    Language = x.GetPropertyValue<string>("language")
+                    Language = x.Value<string>("language")
                 })
                 // Only include nodes that have a language.
                 .Where(x => !string.IsNullOrWhiteSpace(x.Language))
@@ -311,27 +233,30 @@
         /// <param name="page">
         /// The page to get the translation folder for.
         /// </param>
+        /// <param name="context"></param>
         /// <returns>
         /// The translation folder, or null.
         /// </returns>
-        private static IPublishedContent GetTranslationFolderForNode(IPublishedContent page)
+        private static IPublishedContent GetTranslationFolderForNode(
+            IPublishedContent page, 
+            IUmbracoContext context)
         {
 
             // Variables.
             var duration = TimeSpan.FromHours(1);
-            var keys = RhythmCacheHelper.PreviewCacheKeys;
-            var cache = UmbracoContext.Current.ContentCache;
+            var keys = RhythmCacheHelper.PreviewCacheKeys(context);
+            var cache = context.Content;
 
             // Get the translation folder ID from the cache.
             var folderNodeId = TranslationFolderNodeIds.Get(page.Id, pageId =>
             {
 
                 // Variables.
-                var folderDocType = page.DocumentTypeAlias + "TranslationFolder";
+                var folderDocType = page.ContentType.Alias + "TranslationFolder";
 
                 // Look for a translation folder.
                 var folderNode = page.Children
-                    .Where(x => folderDocType.InvariantEquals(x.DocumentTypeAlias))
+                    .Where(x => folderDocType.InvariantEquals(x.ContentType.Alias))
                     .FirstOrDefault();
 
                 // Return the folder node ID.
